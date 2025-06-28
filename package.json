@@ -1,15 +1,31 @@
 {
-  "name": "tamatar-auth",
-  "version": "1.0.50",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "bun run --watch src/index.ts"
-  },
-  "dependencies": {
-    "elysia": "latest"
-  },
-  "devDependencies": {
-    "bun-types": "latest"
-  },
-  "module": "src/index.js"
+	"name": "tamatar-auth",
+	"version": "1.0.50",
+	"scripts": {
+		"dev": "doppler run -- bun run --watch src/index.ts",
+		"email": "email dev --dir src/lib/email/templates",
+		"lint": "biome lint --write",
+		"format": "biome format --write",
+		"check": "biome check --write"
+	},
+	"dependencies": {
+		"@elysiajs/bearer": "^1.3.0",
+		"@elysiajs/jwt": "^1.3.1",
+		"@elysiajs/swagger": "^1.3.1",
+		"@prisma/client": "^6.10.1",
+		"@react-email/components": "^0.1.1",
+		"elysia": "latest",
+		"prismabox": "^1.1.24",
+		"react": "^19.1.0",
+		"react-dom": "^19.1.0",
+		"react-email": "^4.0.17",
+		"resend": "^4.6.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.0.6",
+		"@types/react": "^19.1.8",
+		"bun-types": "latest",
+		"prisma": "^6.10.1"
+	},
+	"module": "src/index.js"
 }
