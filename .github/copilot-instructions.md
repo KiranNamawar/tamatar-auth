@@ -60,7 +60,67 @@ When working on this project, reference these documentation files for context:
 ### Development
 - [`docs/contributing.md`](../docs/contributing.md) - Development workflow and standards
 
-## Coding Guidelines for Copilot
+## Elysia.js Specific Patterns
+
+When suggesting Elysia.js code, always consider:
+
+### Plugin Architecture
+- Use named plugins (`name: "plugin-name"`) for deduplication
+- Apply proper scoping with `.as('scoped')` or `.as('global')`
+- Separate concerns into reusable service plugins
+- Use encapsulation by default (lifecycle hooks don't leak between plugins)
+
+### Schema Management
+- Define reference models with `.model()` for reusability
+- Use TypeBox (`t.*`) for all validation schemas
+- Reference models by name in route handlers
+- Prefer schema inference over manual typing
+
+### Lifecycle Hooks
+- Use `guard` for applying middleware to multiple routes
+- Use `resolve` for computed properties available in context
+- Use `macro` for custom reusable hooks
+- Use `beforeHandle` for authentication/authorization
+- Use `onTransform` for request logging and modification
+
+### Error Handling
+- Use `onError` lifecycle for centralized error handling
+- Return appropriate status codes with `status()` function
+- Prefer throwing custom error classes over inline error responses
+
+### Example Plugin Structure:
+```typescript
+// Service plugin (reusable across modules)
+export const userService = new Elysia({ name: 'user/service' })
+  .state({ users: new Map() })
+  .model({
+    auth: t.Object({
+      email: t.String({ format: 'email' }),
+      password: t.String({ minLength: 8 })
+    })
+  })
+  .macro({
+    isAuthenticated(enabled: boolean) {
+      if (!enabled) return;
+      return {
+        beforeHandle: ({ status, headers }) => {
+          if (!headers.authorization) {
+            return status(401, { error: 'Unauthorized' });
+          }
+        }
+      };
+    }
+  })
+  .as('scoped');
+
+// Controller plugin (specific routes)
+export const authRoutes = new Elysia({ prefix: '/auth' })
+  .use(userService)
+  .post('/login', handler, { 
+    body: 'auth',
+    isAuthenticated: false 
+  });
+```
 
 ### TypeScript Standards
 ```typescript
@@ -112,7 +172,29 @@ export async function createUserWithProfile(userData: UserCreateRequest) {
 import { Elysia, t } from "elysia";
 import { AuthError, ValidationError } from "../lib/errors";
 
-export const authRoutes = new Elysia({ prefix: "/auth" })
+export const authRoutes = new Elysia({ 
+  prefix: "/auth",
+  name: "auth" // Named plugin for deduplication
+})
+  .model({
+    // Reference models for reusable schemas
+    userAuth: t.Object({
+      email: t.String({ format: "email" }),
+      password: t.String({ minLength: 8 }),
+    }),
+    userProfile: t.Object({
+      firstName: t.String({ maxLength: 50 }),
+      lastName: t.Optional(t.String({ maxLength: 50 })),
+    })
+  })
+  .guard({
+    // Apply validation to multiple routes
+    beforeHandle: ({ status, headers }) => {
+      if (!headers.authorization) {
+        return status(401, { error: "Missing authorization header" });
+      }
+    }
+  })
   .post("/register", async ({ body, set }) => {
     try {
       const user = await createUser(body);
@@ -126,12 +208,9 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
       throw error;
     }
   }, {
-    body: t.Object({
-      email: t.String({ format: "email" }),
-      password: t.String({ minLength: 8 }),
-      name: t.Optional(t.String({ maxLength: 100 }))
-    })
-  });
+    body: "userAuth" // Reference model by name
+  })
+  .as('scoped'); // Apply to parent when used as plugin
 ```
 
 ### Testing Patterns
@@ -264,3 +343,12 @@ Always suggest tests when adding new functionality:
 - Consider rate limiting and request throttling
 
 Refer to the documentation files for detailed implementation guidance and examples.
+
+## Staying Current with Elysia.js
+
+As Elysia.js evolves rapidly, always:
+- Reference the latest [Elysia.js documentation](https://elysiajs.com/) for new features
+- Check the [tutorial](https://elysiajs.com/tutorial.html) for updated patterns
+- Update project documentation when adopting new Elysia.js features
+- Maintain consistency between Elysia.js best practices and project patterns
+- Consider performance and type safety improvements in new versions
