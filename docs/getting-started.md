@@ -1,6 +1,13 @@
 # Getting Started
+3. **Install dependencies**
+   ```bash
+   bun install
+   
+   # Install Elysia.js security and performance plugins
+   bun add @elysiajs/cors @elysiajs/jwt @elysiajs/bearer elysia-rate-limit
+   ```
 
-## Prerequisites
+4. **Set up environment variables**rerequisites
 
 Before running the Tamatar Auth microservice, ensure you have the following installed:
 
@@ -85,6 +92,9 @@ bun run check        # Run both linting and formatting
 bunx prisma studio   # Open Prisma Studio (database GUI)
 bunx prisma generate # Regenerate Prisma client
 bunx prisma migrate dev # Run migrations in development
+
+# Plugin Development
+bun run dev:plugins  # Test Elysia.js plugins in isolation
 ```
 
 ## Environment Setup

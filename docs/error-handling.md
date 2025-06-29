@@ -2,7 +2,7 @@
 
 ## Overview
 
-Robust error handling is crucial for a reliable authentication microservice. This guide outlines the error handling patterns, custom error classes, and best practices implemented in Tamatar Auth.
+Robust error handling is crucial for a reliable authentication microservice. This guide outlines the error handling patterns, custom error classes, and best practices implemented in Tamatar Auth using [Elysia.js lifecycle hooks](https://elysiajs.com/life-cycle/overview.html) and [centralized error handling](https://elysiajs.com/life-cycle/on-error.html).
 
 ## Error Categories
 
@@ -268,110 +268,122 @@ export class ExternalServiceError extends SystemError {
 
 ## Error Handler Middleware
 
+Using [Elysia.js `onError` lifecycle hook](https://elysiajs.com/life-cycle/on-error.html) for centralized error handling:
+
 ```typescript
 // src/lib/middleware/error-handler.ts
-import type { Context } from 'elysia';
+import { Elysia } from 'elysia';
 import { BaseError } from '../errors/base';
 import { logger } from '../utils/logger';
 
-export const errorHandler = (error: Error, ctx: Context) => {
-  const requestId = ctx.headers['x-request-id'] || generateRequestId();
-  
-  // Log error with context
-  logger.error('Request failed', {
-    error: error.message,
-    stack: error.stack,
-    requestId,
-    path: ctx.path,
-    method: ctx.request.method,
-    userAgent: ctx.headers['user-agent'],
-    ip: ctx.headers['x-forwarded-for'] || ctx.request.headers.get('x-real-ip'),
-  });
+export const errorHandler = new Elysia({ name: 'error-handler' })
+  .onError(({ error, set, request, code }) => {
+    const requestId = request.headers.get('x-request-id') || generateRequestId();
+    
+    // Log error with context
+    logger.error('Request failed', {
+      error: error.message,
+      stack: error.stack,
+      requestId,
+      path: new URL(request.url).pathname,
+      method: request.method,
+      userAgent: request.headers.get('user-agent'),
+      ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip'),
+      code
+    });
 
-  // Handle custom errors
-  if (error instanceof BaseError) {
-    return ctx
-      .set.status(error.statusCode)
-      .json({
+    // Set common response headers
+    set.headers = {
+      'Content-Type': 'application/json',
+      'X-Request-ID': requestId
+    };
+
+    // Handle custom errors
+    if (error instanceof BaseError) {
+      set.status = error.statusCode;
+      return {
         error: {
           ...error.toJSON(),
-          path: ctx.path,
+          path: new URL(request.url).pathname,
           requestId,
         },
-      });
-  }
+      };
+    }
 
-  // Handle Prisma errors
-  if (error.name === 'PrismaClientKnownRequestError') {
-    return handlePrismaError(error, ctx, requestId);
-  }
-
-  // Handle validation errors (from Elysia/TypeBox)
-  if (error.name === 'ValidationError') {
-    return ctx
-      .set.status(400)
-      .json({
+    // Handle Elysia validation errors
+    if (code === 'VALIDATION') {
+      set.status = 400;
+      return {
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Invalid request data',
           details: error.message,
           timestamp: new Date().toISOString(),
-          path: ctx.path,
+          path: new URL(request.url).pathname,
           requestId,
         },
-      });
-  }
+      };
+    }
+    // Handle Prisma errors
+    if (error.name === 'PrismaClientKnownRequestError') {
+      return handlePrismaError(error, set, request, requestId);
+    }
 
-  // Handle unexpected errors
-  return ctx
-    .set.status(500)
-    .json({
+    // Handle unexpected errors
+    set.status = 500;
+    return {
       error: {
         code: 'INTERNAL_SERVER_ERROR',
         message: 'An unexpected error occurred',
         timestamp: new Date().toISOString(),
-        path: ctx.path,
+        path: new URL(request.url).pathname,
         requestId,
       },
-    });
-};
+    };
+  })
+  .as('global');
 
-function handlePrismaError(error: any, ctx: Context, requestId: string) {
+function handlePrismaError(error: any, set: any, request: Request, requestId: string) {
   const { code } = error;
   
   switch (code) {
     case 'P2002': // Unique constraint violation
-      return ctx
-        .set.status(409)
-        .json({
-          error: {
-            code: 'DUPLICATE_ENTRY',
-            message: 'A record with this information already exists',
-            timestamp: new Date().toISOString(),
-            path: ctx.path,
-            requestId,
-          },
-        });
+      set.status = 409;
+      return {
+        error: {
+          code: 'DUPLICATE_ENTRY',
+          message: 'A record with this information already exists',
+          timestamp: new Date().toISOString(),
+          path: new URL(request.url).pathname,
+          requestId,
+        },
+      };
     
     case 'P2025': // Record not found
-      return ctx
-        .set.status(404)
-        .json({
-          error: {
-            code: 'RECORD_NOT_FOUND',
-            message: 'The requested resource was not found',
-            timestamp: new Date().toISOString(),
-            path: ctx.path,
-            requestId,
-          },
-        });
+      set.status = 404;
+      return {
+        error: {
+          code: 'RECORD_NOT_FOUND',
+          message: 'The requested resource was not found',
+          timestamp: new Date().toISOString(),
+          path: new URL(request.url).pathname,
+          requestId,
+        },
+      };
     
     default:
-      return ctx
-        .set.status(500)
-        .json({
-          error: {
-            code: 'DATABASE_ERROR',
+      set.status = 500;
+      return {
+        error: {
+          code: 'DATABASE_ERROR',
+          message: 'A database error occurred',
+          timestamp: new Date().toISOString(),
+          path: new URL(request.url).pathname,
+          requestId,
+        },
+      };
+  }
+}
             message: 'A database error occurred',
             timestamp: new Date().toISOString(),
             path: ctx.path,

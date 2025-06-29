@@ -35,12 +35,13 @@ Tamatar Auth is a centralized authentication microservice designed to handle use
 ### Technology Stack
 
 - **Runtime**: [Bun](https://bun.sh/) - Fast JavaScript runtime
-- **Framework**: [Elysia.js](https://elysiajs.com/) - Fast and type-safe web framework
+- **Framework**: [Elysia.js](https://elysiajs.com/) - Fast and type-safe web framework with [plugin architecture](https://elysiajs.com/concept/plugin.html)
 - **Database**: PostgreSQL with [Prisma ORM](https://prisma.io/)
-- **Authentication**: JWT tokens with session management
+- **Authentication**: JWT tokens with session management using [@elysiajs/jwt](https://elysiajs.com/plugins/jwt.html)
 - **Email**: [Resend](https://resend.com/) with React Email templates
-- **Validation**: Elysia's built-in validation with TypeBox
-- **Documentation**: Swagger/OpenAPI
+- **Validation**: [TypeBox](https://elysiajs.com/validation/overview.html) with Elysia's validation system
+- **Security**: [CORS](https://elysiajs.com/plugins/cors.html), [Bearer Authentication](https://elysiajs.com/plugins/bearer.html), and [Rate Limiting](https://elysiajs.com/plugins/rate-limit.html)
+- **Documentation**: Auto-generated Swagger/OpenAPI with Elysia's schema system
 - **Code Quality**: Biome for linting and formatting
 
 ## Architecture
@@ -85,15 +86,31 @@ tamatar-auth/
 │   ├── schema.prisma        # Database schema
 │   └── migrations/          # Database migrations
 ├── src/
-│   ├── index.ts            # Application entry point
-│   ├── generated/          # Generated code (Prisma, TypeBox)
+│   ├── index.ts            # Application entry point with Elysia app
+│   ├── generated/          # Generated code (Prisma, PrismaBox)
+│   ├── routes/             # Route handlers using Elysia patterns
+│   ├── middleware/         # Elysia middleware and plugins
+│   ├── plugins/            # Custom Elysia plugins
 │   └── lib/
-│       ├── db/             # Database utilities
-│       └── email/          # Email service and templates
+│       ├── db/             # Database utilities and repositories
+│       ├── email/          # Email service with templates
+│       ├── auth/           # Authentication utilities
+│       └── validation/     # TypeBox validation schemas
 ├── package.json
 ├── tsconfig.json
 └── biome.json             # Code formatting and linting
 ```
+
+## Elysia.js Architecture
+
+The application follows [Elysia.js best practices](https://elysiajs.com/) with:
+
+- **[Plugin Architecture](https://elysiajs.com/concept/plugin.html)**: Modular services with proper scoping and lifecycle management
+- **[Handler Context](https://elysiajs.com/concept/handler.html)**: Typed request/response handling with context utilities
+- **[Validation System](https://elysiajs.com/validation/overview.html)**: TypeBox-powered schema validation for all endpoints
+- **[Lifecycle Hooks](https://elysiajs.com/life-cycle/overview.html)**: Request processing pipeline with authentication and error handling
+- **[Dependency Injection](https://elysiajs.com/patterns/dependency-injection.html)**: Service injection using `decorate`, `derive`, and `resolve`
+- **[Reference Models](https://elysiajs.com/patterns/reference-model.html)**: Reusable validation schemas across the application
 
 ## Getting Started
 

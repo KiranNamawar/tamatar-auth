@@ -651,22 +651,24 @@ X-RateLimit-Reset: 1640995200
 
 ## CORS Configuration
 
-The API supports CORS for cross-origin requests:
+The API supports CORS for cross-origin requests using the `@elysiajs/cors` plugin:
 
-```javascript
-// Allowed origins (configurable)
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'https://app.tamatar.dev',
-  'https://admin.tamatar.dev'
-];
+```typescript
+// CORS configuration
+import { cors } from '@elysiajs/cors';
 
-// Allowed methods
-GET, POST, PATCH, DELETE, OPTIONS
-
-// Allowed headers
-Authorization, Content-Type, X-Requested-With
+const corsPlugin = new Elysia({ name: 'cors' })
+  .use(cors({
+    origin: process.env.NODE_ENV === 'production' 
+      ? ['https://app.tamatar.dev', 'https://admin.tamatar.dev']
+      : true, // Allow all origins in development
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With', 'X-CSRF-Token'],
+    exposeHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
+    maxAge: 86400, // 24 hours
+  }))
+  .as('global');
 ```
 
 ## Error Codes Reference

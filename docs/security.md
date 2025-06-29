@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide covers comprehensive security best practices for the Tamatar Auth microservice, including authentication security, data protection, API security, and operational security measures.
+This guide covers comprehensive security best practices for the Tamatar Auth microservice, including authentication security, data protection, API security, and operational security measures using [Elysia.js](https://elysiajs.com/) security plugins and patterns.
 
 ## Authentication Security
 
@@ -529,109 +529,91 @@ export class DatabaseSecurity {
 
 ## Rate Limiting and DDoS Protection
 
-### 1. Advanced Rate Limiting
+### 1. Advanced Rate Limiting with Elysia Plugin
 
 ```typescript
 // src/lib/security/rate-limit.ts
-import { Redis } from 'ioredis';
+import { rateLimit } from 'elysia-rate-limit';
+import { Elysia } from 'elysia';
 
-export class RateLimiter {
-  private redis: Redis;
-
-  constructor() {
-    this.redis = new Redis(config.get().cache.redisUrl);
+export class RateLimitService {
+  static createBasicRateLimit() {
+    return rateLimit({
+      duration: 60000, // 1 minute window
+      max: 100, // 100 requests per minute
+      errorResponse: new Response(
+        JSON.stringify({
+          error: {
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: 'Too many requests. Please try again later.',
+            retryAfter: 60
+          }
+        }),
+        { 
+          status: 429,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      ),
+      generator: (req) => {
+        // Rate limit by IP address with proxy support
+        const forwardedFor = req.headers.get('x-forwarded-for');
+        const realIP = req.headers.get('x-real-ip');
+        return forwardedFor?.split(',')[0]?.trim() || realIP || 'unknown';
+      },
+      skip: (req) => {
+        // Skip rate limiting for health checks
+        return req.url.endsWith('/health') || req.url.endsWith('/metrics');
+      }
+    });
   }
 
-  async checkLimit(
-    identifier: string,
-    windowMs: number,
-    maxRequests: number,
-    keyPrefix: string = 'rate_limit'
-  ): Promise<{
-    allowed: boolean;
-    remaining: number;
-    resetTime: number;
-  }> {
-    const key = `${keyPrefix}:${identifier}`;
-    const now = Date.now();
-    const windowStart = now - windowMs;
-
-    // Use Redis sorted set for sliding window
-    const pipeline = this.redis.pipeline();
-    
-    // Remove expired entries
-    pipeline.zremrangebyscore(key, 0, windowStart);
-    
-    // Add current request
-    pipeline.zadd(key, now, `${now}-${Math.random()}`);
-    
-    // Count requests in window
-    pipeline.zcard(key);
-    
-    // Set expiration
-    pipeline.expire(key, Math.ceil(windowMs / 1000));
-    
-    const results = await pipeline.exec();
-    const count = results?.[2]?.[1] as number;
-
-    const remaining = Math.max(0, maxRequests - count);
-    const resetTime = now + windowMs;
-
-    return {
-      allowed: count <= maxRequests,
-      remaining,
-      resetTime,
-    };
+  static createAuthRateLimit() {
+    return rateLimit({
+      duration: 15 * 60 * 1000, // 15 minutes
+      max: 5, // 5 login attempts per 15 minutes
+      generator: (req) => {
+        // Rate limit by email for login attempts
+        const body = req.body ? JSON.parse(req.body) : {};
+        return body.email || req.headers.get('x-forwarded-for') || 'unknown';
+      },
+      errorResponse: new Response(
+        JSON.stringify({
+          error: {
+            code: 'LOGIN_RATE_LIMIT_EXCEEDED',
+            message: 'Too many login attempts. Please try again in 15 minutes.',
+            retryAfter: 900
+          }
+        }),
+        { 
+          status: 429,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      )
+    });
   }
 
-  // IP-based rate limiting
-  async checkIpLimit(
-    ip: string,
-    windowMs: number = 15 * 60 * 1000, // 15 minutes
-    maxRequests: number = 100
-  ): Promise<{ allowed: boolean; remaining: number; resetTime: number }> {
-    return this.checkLimit(ip, windowMs, maxRequests, 'ip_limit');
-  }
-
-  // User-based rate limiting
-  async checkUserLimit(
-    userId: string,
-    windowMs: number = 60 * 1000, // 1 minute
-    maxRequests: number = 60
-  ): Promise<{ allowed: boolean; remaining: number; resetTime: number }> {
-    return this.checkLimit(userId, windowMs, maxRequests, 'user_limit');
-  }
-
-  // Endpoint-specific rate limiting
-  async checkEndpointLimit(
-    identifier: string,
-    endpoint: string,
-    windowMs: number,
-    maxRequests: number
-  ): Promise<{ allowed: boolean; remaining: number; resetTime: number }> {
-    return this.checkLimit(
-      `${identifier}:${endpoint}`,
-      windowMs,
-      maxRequests,
-      'endpoint_limit'
-    );
-  }
-
-  // Progressive delay for repeated violations
-  async getProggressiveDelay(identifier: string): Promise<number> {
-    const key = `progressive_delay:${identifier}`;
-    const violations = await this.redis.incr(key);
-    
-    // Set expiration for violation counter (1 hour)
-    await this.redis.expire(key, 3600);
-
-    // Progressive delay: 1s, 2s, 4s, 8s, max 30s
-    const delay = Math.min(Math.pow(2, violations - 1) * 1000, 30000);
-    return delay;
+  static createEndpointRateLimit(max: number, duration: number) {
+    return rateLimit({
+      duration,
+      max,
+      generator: (req) => {
+        // Combine IP and endpoint for granular limiting
+        const ip = req.headers.get('x-forwarded-for') || 'unknown';
+        const endpoint = new URL(req.url).pathname;
+        return `${ip}:${endpoint}`;
+      }
+    });
   }
 }
 
-export const rateLimiter = new RateLimiter();
+// Usage in routes
+export const rateLimitPlugin = new Elysia({ name: 'rate-limit' })
+  .use(RateLimitService.createBasicRateLimit())
+  .as('global');
+
+export const authRateLimitPlugin = new Elysia({ name: 'auth-rate-limit' })
+  .use(RateLimitService.createAuthRateLimit())
+  .as('scoped');
 ```
 
 ### 2. Request Throttling Middleware
@@ -715,63 +697,83 @@ export const strictThrottle = throttle({
 
 ## CSRF Protection
 
-### 1. CSRF Token Implementation
+### 1. CSRF Protection with Modern Patterns
 
 ```typescript
 // src/lib/security/csrf.ts
+import { Elysia } from 'elysia';
 import crypto from 'crypto';
-import { Redis } from 'ioredis';
 
-export class CSRFProtection {
-  private redis: Redis;
-  private readonly TOKEN_LENGTH = 32;
-  private readonly TOKEN_EXPIRY = 3600; // 1 hour
-
-  constructor() {
-    this.redis = new Redis(config.get().cache.redisUrl);
-  }
-
-  generateToken(sessionId: string): string {
-    const token = crypto.randomBytes(this.TOKEN_LENGTH).toString('hex');
-    
-    // Store token with session association
-    this.redis.setex(`csrf:${token}`, this.TOKEN_EXPIRY, sessionId);
-    
-    return token;
-  }
-
-  async validateToken(token: string, sessionId: string): Promise<boolean> {
-    const storedSessionId = await this.redis.get(`csrf:${token}`);
-    
-    if (storedSessionId !== sessionId) {
-      return false;
+export const csrfProtection = new Elysia({ name: 'csrf' })
+  .derive(() => ({
+    csrf: {
+      generateToken(): string {
+        return crypto.randomBytes(32).toString('hex');
+      },
+      
+      validateToken(cookieToken: string, headerToken: string): boolean {
+        if (!cookieToken || !headerToken) {
+          return false;
+        }
+        
+        // Constant-time comparison to prevent timing attacks
+        return crypto.timingSafeEqual(
+          Buffer.from(cookieToken, 'hex'),
+          Buffer.from(headerToken, 'hex')
+        );
+      }
     }
+  }))
+  .macro(({ onBeforeHandle }) => ({
+    requireCSRF(enabled: boolean) {
+      if (!enabled) return;
+      return onBeforeHandle(({ request, cookie, csrf, error }) => {
+        // Skip CSRF for safe methods
+        if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+          return;
+        }
 
-    // Remove token after use (one-time use)
-    await this.redis.del(`csrf:${token}`);
-    
-    return true;
-  }
+        // Skip CSRF for API requests with Bearer token
+        const authorization = request.headers.get('authorization');
+        if (authorization?.startsWith('Bearer ')) {
+          return;
+        }
 
-  // Double submit cookie pattern
-  generateDoubleSubmitToken(): string {
-    return crypto.randomBytes(this.TOKEN_LENGTH).toString('hex');
-  }
+        const cookieToken = cookie?.csrf_token?.value;
+        const headerToken = request.headers.get('x-csrf-token');
 
-  validateDoubleSubmitToken(cookieToken: string, headerToken: string): boolean {
-    if (!cookieToken || !headerToken) {
-      return false;
+        if (!csrf.validateToken(cookieToken, headerToken)) {
+          return error(403, {
+            error: {
+              code: 'CSRF_TOKEN_INVALID',
+              message: 'CSRF token validation failed'
+            }
+          });
+        }
+      });
     }
+  }))
+  .as('scoped');
 
-    // Constant-time comparison to prevent timing attacks
-    return crypto.timingSafeEqual(
-      Buffer.from(cookieToken, 'hex'),
-      Buffer.from(headerToken, 'hex')
-    );
-  }
-}
+// Generate CSRF token endpoint
+export const csrfRoutes = new Elysia({ prefix: '/csrf' })
+  .use(csrfProtection)
+  .get('/token', ({ csrf, set }) => {
+    const token = csrf.generateToken();
+    
+    // Set secure cookie
+    set.cookie = {
+      csrf_token: {
+        value: token,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 3600, // 1 hour
+      },
+    };
 
-export const csrfProtection = new CSRFProtection();
+    return { csrfToken: token };
+  });
 ```
 
 ### 2. CSRF Middleware

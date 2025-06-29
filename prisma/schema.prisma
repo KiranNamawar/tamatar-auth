@@ -9,33 +9,27 @@ generator client {
   output   = "../src/generated/prisma"
 }
 
-generator prismabox {
-  provider = "prismabox"
-  typeboxImportDependencyName = "elysia"
-  typeboxImportVariableName = "t"
-  inputModel = true
-  output   = "../src/generated/prismabox"
-}
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model User {
-  id        String   @id @default(cuid())
-  firstName String
-  lastName  String?
-  avatar    String?
-  username  String   @unique
-  email     String   @unique
-  password  String?
-  googleId String? @unique
-  emailVerified Boolean @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(cuid())
+  firstName     String
+  lastName      String?
+  avatar        String?
+  username      String   @unique
+  email         String   @unique
+  password      String?
+  googleId      String?  @unique
+  emailVerified Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  sessions  Session[]
+  sessions                Session[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
 
   @@map("users")
 }
@@ -51,7 +45,36 @@ model Session {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("sessions")
   @@index([userId], name: "idx_sessions_user_id")
   @@index([expiresAt], name: "idx_sessions_expires_at")
+  @@map("sessions")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId], name: "idx_email_verification_user_id")
+  @@index([token], name: "idx_email_verification_token")
+  @@index([expiresAt], name: "idx_email_verification_expires_at")
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId], name: "idx_password_reset_user_id")
+  @@index([token], name: "idx_password_reset_token")
+  @@index([expiresAt], name: "idx_password_reset_expires_at")
+  @@map("password_reset_tokens")
 }

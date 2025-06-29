@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide covers the authentication and authorization patterns implemented in Tamatar Auth, including JWT tokens, session management, OAuth integration, and security best practices.
+This guide covers the authentication and authorization patterns implemented in Tamatar Auth, including JWT tokens, session management, OAuth integration, and security best practices using [Elysia.js](https://elysiajs.com/).
 
 ## Authentication Flow
 
@@ -110,8 +110,65 @@ sequenceDiagram
 
 ```typescript
 // src/lib/auth/jwt.ts
-import jwt from 'jsonwebtoken';
+import { jwt } from '@elysiajs/jwt';
+import { Elysia } from 'elysia';
 import type { User, Session } from '@prisma/client';
+
+// JWT plugin with multiple token types using Elysia.js JWT plugin
+// Reference: https://elysiajs.com/plugins/jwt.html
+export const jwtPlugin = new Elysia({ name: 'jwt' })
+  .use(jwt({
+    name: 'jwt',
+    secret: process.env.JWT_SECRET!,
+    exp: '15m', // Access token expiration
+    iss: 'tamatar-auth',
+    aud: 'tamatar-services'
+  }))
+  .use(jwt({
+    name: 'refreshJWT',
+    secret: process.env.JWT_REFRESH_SECRET!,
+    exp: '7d', // Refresh token expiration
+    iss: 'tamatar-auth',
+    aud: 'tamatar-services'
+  }))
+  .derive(({ jwt, refreshJWT }) => ({
+    auth: {
+      async signTokens(payload: TokenPayload) {
+        const accessToken = await jwt.sign(payload);
+        const refreshToken = await refreshJWT.sign({ 
+          sub: payload.sub, 
+          type: 'refresh' 
+        });
+        
+        return {
+          accessToken,
+          refreshToken,
+          expiresIn: 15 * 60 // 15 minutes in seconds
+        };
+      },
+      
+      async verifyAccess(token: string) {
+        try {
+          return await jwt.verify(token);
+        } catch (error) {
+          throw new TokenExpiredError();
+        }
+      },
+      
+      async verifyRefresh(token: string) {
+        try {
+          const payload = await refreshJWT.verify(token);
+          if (payload.type !== 'refresh') {
+            throw new InvalidTokenError();
+          }
+          return payload;
+        } catch (error) {
+          throw new InvalidTokenError();
+        }
+      }
+    }
+  }))
+  .as('scoped');
 
 interface TokenPayload {
   sub: string;
@@ -133,108 +190,15 @@ interface RefreshTokenPayload {
   iss: string;
   aud: string;
 }
-
-export class JWTService {
-  private readonly secret: string;
-  private readonly issuer = 'tamatar-auth';
-  private readonly audience = 'tamatar-services';
-  private readonly accessTokenExpiry = '15m';
-  private readonly refreshTokenExpiry = '7d';
-
-  constructor() {
-    this.secret = process.env.JWT_SECRET!;
-    if (!this.secret) {
-      throw new Error('JWT_SECRET environment variable is required');
-    }
-  }
-
-  generateTokens(user: User, session: Session) {
-    const accessToken = this.generateAccessToken(user, session);
-    const refreshToken = this.generateRefreshToken(user, session);
-
-    return {
-      accessToken,
-      refreshToken,
-      expiresIn: this.getExpiryInSeconds(this.accessTokenExpiry),
-    };
-  }
-
-  private generateAccessToken(user: User, session: Session): string {
-    const payload: TokenPayload = {
-      sub: user.id,
-      email: user.email,
-      username: user.username,
-      sessionId: session.id,
-      iss: this.issuer,
-      aud: this.audience,
-    };
-
-    return jwt.sign(payload, this.secret, {
-      expiresIn: this.accessTokenExpiry,
-    });
-  }
-
-  private generateRefreshToken(user: User, session: Session): string {
-    const payload: RefreshTokenPayload = {
-      sub: user.id,
-      sessionId: session.id,
-      type: 'refresh',
-      iss: this.issuer,
-      aud: this.audience,
-    };
-
-    return jwt.sign(payload, this.secret, {
-      expiresIn: this.refreshTokenExpiry,
-    });
-  }
-
-  verifyAccessToken(token: string): TokenPayload {
-    try {
-      return jwt.verify(token, this.secret, {
-        issuer: this.issuer,
-        audience: this.audience,
-      }) as TokenPayload;
-    } catch (error) {
-      throw new InvalidTokenError();
-    }
-  }
-
-  verifyRefreshToken(token: string): RefreshTokenPayload {
-    try {
-      const payload = jwt.verify(token, this.secret, {
-        issuer: this.issuer,
-        audience: this.audience,
-      }) as RefreshTokenPayload;
-
-      if (payload.type !== 'refresh') {
-        throw new InvalidTokenError();
-      }
-
-      return payload;
-    } catch (error) {
-      throw new InvalidTokenError();
-    }
-  }
-
-  private getExpiryInSeconds(expiry: string): number {
-    const match = expiry.match(/^(\d+)([smhd])$/);
-    if (!match) return 0;
-
-    const [, value, unit] = match;
-    const multipliers = { s: 1, m: 60, h: 3600, d: 86400 };
-    return parseInt(value) * multipliers[unit as keyof typeof multipliers];
-  }
-}
-
-export const jwtService = new JWTService();
 ```
 
 ### Authentication Middleware
 
 ```typescript
 // src/lib/middleware/auth.ts
-import type { Context } from 'elysia';
-import { jwtService } from '../auth/jwt';
+import { Elysia, t } from 'elysia';
+import { bearer } from '@elysiajs/bearer';
+import { jwtPlugin } from '../auth/jwt';
 import { sessionService } from '../auth/session';
 import { 
   MissingTokenError, 
@@ -242,68 +206,83 @@ import {
   TokenExpiredError 
 } from '../errors';
 
-export interface AuthenticatedContext extends Context {
-  user: {
-    id: string;
-    email: string;
-    username: string;
-    sessionId: string;
-  };
-}
+// Authentication middleware using Elysia.js patterns
+// Reference: https://elysiajs.com/plugins/bearer.html and https://elysiajs.com/patterns/macro.html
+export const authMiddleware = new Elysia({ name: 'auth-middleware' })
+  .use(bearer())
+  .use(jwtPlugin)
+  .derive(({ bearer, auth }) => ({
+    user: null as AuthenticatedUser | null
+  }))
+  .resolve(async ({ bearer, auth }) => {
+    if (!bearer) {
+      return {};
+    }
 
-export const authMiddleware = async (ctx: Context): Promise<AuthenticatedContext> => {
-  const authorization = ctx.headers.authorization;
-  
-  if (!authorization) {
-    throw new MissingTokenError();
-  }
+    try {
+      // Verify JWT token
+      const payload = await auth.verifyAccess(bearer);
+      
+      // Verify session is still valid
+      const session = await sessionService.validateSession(payload.sessionId);
+      
+      if (!session || !session.isValid) {
+        throw new InvalidTokenError();
+      }
 
-  const [scheme, token] = authorization.split(' ');
-  
-  if (scheme !== 'Bearer' || !token) {
-    throw new InvalidTokenError();
-  }
+      // Update session last activity
+      await sessionService.updateLastActivity(session.id);
 
-  try {
-    // Verify JWT token
-    const payload = jwtService.verifyAccessToken(token);
-    
-    // Verify session is still valid
-    const session = await sessionService.validateSession(payload.sessionId);
-    
-    if (!session || !session.isValid) {
+      return {
+        user: {
+          id: payload.sub,
+          email: payload.email,
+          username: payload.username,
+          sessionId: payload.sessionId,
+        } as AuthenticatedUser
+      };
+    } catch (error) {
+      if (error.name === 'TokenExpiredError') {
+        throw new TokenExpiredError();
+      }
       throw new InvalidTokenError();
     }
-
-    // Update session last activity
-    await sessionService.updateLastActivity(session.id);
-
-    return {
-      ...ctx,
-      user: {
-        id: payload.sub,
-        email: payload.email,
-        username: payload.username,
-        sessionId: payload.sessionId,
-      },
-    };
-  } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      throw new TokenExpiredError();
+  })
+  .macro(({ onBeforeHandle }) => ({
+    requireAuth(enabled: boolean) {
+      if (!enabled) return;
+      return onBeforeHandle(({ user, error }) => {
+        if (!user) {
+          return error(401, {
+            error: {
+              code: 'MISSING_TOKEN',
+              message: 'Authentication required'
+            }
+          });
+        }
+      });
     }
-    throw new InvalidTokenError();
-  }
-};
+  }))
+  .as('scoped');
+
+export interface AuthenticatedUser {
+  id: string;
+  email: string;
+  username: string;
+  sessionId: string;
+}
 
 // Optional authentication (user may or may not be authenticated)
-export const optionalAuthMiddleware = async (ctx: Context) => {
-  try {
-    return await authMiddleware(ctx);
-  } catch (error) {
+export const optionalAuthMiddleware = new Elysia({ name: 'optional-auth' })
+  .use(authMiddleware)
+  .onError(({ error }) => {
     // If authentication fails, continue without user context
-    return ctx;
-  }
-};
+    if (error instanceof InvalidTokenError || error instanceof TokenExpiredError) {
+      return {}; // Continue without authentication
+    }
+    throw error;
+  })
+  .as('scoped');
 ```
 
 ### Session Management
@@ -890,5 +869,7 @@ export class ServiceAuthService {
   }
 }
 ```
+
+This comprehensive authentication and authorization system provides secure, scalable user management with support for multiple authentication methods and fine-grained access control.
 
 This comprehensive authentication and authorization system provides secure, scalable user management with support for multiple authentication methods and fine-grained access control.
