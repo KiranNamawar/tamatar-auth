@@ -16,63 +16,59 @@ class ConfigService {
 
 			database: {
 				url: process.env.DATABASE_URL ?? "",
-				poolSize: process.env.DATABASE_POOL_SIZE
-					? parseInt(process.env.DATABASE_POOL_SIZE, 10)
-					: undefined,
-				connectionTimeout: process.env.DATABASE_CONNECTION_TIMEOUT
-					? parseInt(process.env.DATABASE_CONNECTION_TIMEOUT, 10)
-					: undefined,
-				queryTimeout: process.env.DATABASE_QUERY_TIMEOUT
-					? parseInt(process.env.DATABASE_QUERY_TIMEOUT, 10)
-					: undefined,
+				// Constants - no longer configurable via env
+				poolSize: 10,
+				connectionTimeout: 5000,
+				queryTimeout: 10000,
 			},
 
 			jwt: {
 				secret: process.env.JWT_SECRET,
-				accessTokenExpiry: process.env.JWT_ACCESS_TOKEN_EXPIRY,
-				refreshTokenExpiry: process.env.JWT_REFRESH_TOKEN_EXPIRY,
-				issuer: process.env.JWT_ISSUER,
-				audience: process.env.JWT_AUDIENCE,
+				// Constants - no longer configurable via env
+				accessTokenExpiry: "15m",
+				refreshTokenExpiry: "7d",
+				issuer: "tamatar-auth",
+				audience: "tamatar-services",
 			},
 
 			email: {
 				resendApiKey: process.env.RESEND_API_KEY,
 				fromEmail: process.env.FROM_EMAIL,
 				replyToEmail: process.env.REPLY_TO_EMAIL,
-				verificationEnabled: process.env.EMAIL_VERIFICATION_ENABLED !== "false",
-				passwordResetEnabled: process.env.PASSWORD_RESET_ENABLED !== "false",
+				// Constants - no longer configurable via env
+				verificationEnabled: true,
+				passwordResetEnabled: true,
 			},
 
 			security: {
 				corsOrigin:
 					process.env.CORS_ORIGIN?.split(",") || process.env.CORS_ORIGIN,
-				corsCredentials: process.env.CORS_CREDENTIALS !== "false",
-				rateLimitEnabled: process.env.RATE_LIMIT_ENABLED !== "false",
-				rateLimitWindow: process.env.RATE_LIMIT_WINDOW,
-				rateLimitMax: process.env.RATE_LIMIT_MAX_REQUESTS
-					? parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10)
-					: undefined,
+				// Constants - no longer configurable via env
+				corsCredentials: true,
+				rateLimitEnabled: true,
+				rateLimitWindow: "15m",
+				rateLimitMax: 100,
 			},
 
 			urls: {
-				frontend: process.env.FRONTEND_URL,
-				admin: process.env.ADMIN_URL,
-				auth: process.env.AUTH_URL,
+				frontendService: process.env.FRONTEND_SERVICE_URL,
+				adminService: process.env.ADMIN_SERVICE_URL,
+				authService: process.env.AUTH_SERVICE_URL,
 			},
 
 			monitoring: {
 				logLevel: process.env.LOG_LEVEL as Config["monitoring"]["logLevel"],
-				logFormat: process.env.LOG_FORMAT as Config["monitoring"]["logFormat"],
+				// Constant - no longer configurable via env
+				logFormat: "json" as const,
 				sentryDsn: process.env.SENTRY_DSN,
 				sentryEnvironment: process.env.SENTRY_ENVIRONMENT,
 			},
 
 			features: {
-				registrationEnabled:
-					process.env.FEATURE_REGISTRATION_ENABLED !== "false",
-				oauthEnabled: process.env.FEATURE_OAUTH_ENABLED !== "false",
-				passwordResetEnabled:
-					process.env.FEATURE_PASSWORD_RESET_ENABLED !== "false",
+				// Constants - no longer configurable via env
+				registrationEnabled: true,
+				oauthEnabled: true,
+				passwordResetEnabled: true,
 			},
 		};
 

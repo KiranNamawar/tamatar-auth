@@ -53,7 +53,7 @@ export const emailService = new Elysia({ name: "email-service" })
 						throw new Error("Email verification is disabled");
 					}
 
-					const verificationUrl = `${config.urls.frontend}/verify-email?token=${verificationToken}`;
+					const verificationUrl = `${config.urls.frontendService}/verify-email?token=${verificationToken}`;
 
 					return await this.sendEmail({
 						to,
@@ -78,7 +78,7 @@ export const emailService = new Elysia({ name: "email-service" })
 						throw new Error("Password reset is disabled");
 					}
 
-					const resetUrl = `${config.urls.frontend}/reset-password?token=${resetToken}`;
+					const resetUrl = `${config.urls.frontendService}/reset-password?token=${resetToken}`;
 
 					return await this.sendEmail({
 						to,
@@ -103,7 +103,7 @@ export const emailService = new Elysia({ name: "email-service" })
 						subject: "Welcome to Tamatar!",
 						react: EmailVerificationTemplate({
 							firstName,
-							verificationUrl: config.urls.frontend,
+							verificationUrl: config.urls.frontendService,
 							expiresIn: "Never",
 						}),
 					});
